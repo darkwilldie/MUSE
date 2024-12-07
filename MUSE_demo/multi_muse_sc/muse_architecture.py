@@ -7,73 +7,85 @@ from .triplet_loss import batch_hard_triplet_loss
 class MUSE(nn.Module):
     def __init__(
         self,
-        n_input_x,
-        n_input_y,
+        dims,
         dim_z,
         n_hidden,
         weight_penalty,
     ):
         super(MUSE, self).__init__()
-        self.encoder_x = Encoder(n_input_x, n_hidden)
-        self.encoder_y = Encoder(n_input_y, n_hidden)
-        self.decoder_x = Decoder(dim_z, n_hidden, n_input_x)
-        self.decoder_y = Decoder(dim_z, n_hidden, n_input_y)
-        self.w_selection_x = nn.Parameter(torch.randn(dim_z, dim_z))
-        self.w_selection_y = nn.Parameter(torch.randn(dim_z, dim_z))
+        self.num_modalities = len(dims)
+        self.encoders = nn.ModuleList([Encoder(dim, n_hidden) for dim in dims])
+        self.decoders = nn.ModuleList([Decoder(dim_z, n_hidden, dim) for dim in dims])
+        self.w_selections = nn.ParameterList(
+            [
+                nn.Parameter(torch.randn(dim_z, dim_z))
+                for _ in range(self.num_modalities)
+            ]
+        )
         self.weight_penalty = weight_penalty
 
-        self.fc_latent = nn.Linear(2 * n_hidden, dim_z)
+        self.fc_latent = nn.Linear(self.num_modalities * n_hidden, dim_z)
 
-    def forward(self, x, y, label_x, label_y, triplet_margin=0, triplet_lambda=0):
-        z, encode_x, encode_y = self.encode(x, y)
-        x_hat = self.decoder_x(torch.matmul(z, self.w_selection_x))
-        y_hat = self.decoder_y(torch.matmul(z, self.w_selection_y))
+    def forward(self, inputs, labels=None, triplet_margin=0, triplet_lambda=0):
+        z, encoded_inputs = self.encode(inputs)
+        inputs_hat = torch.stack(
+            [
+                self.decoders[i](torch.matmul(z, self.w_selections[i]))
+                for i in range(self.num_modalities)
+            ]
+        )
 
         sparse_penalty = torch.sqrt(
-            torch.sum(torch.square(self.w_selection_x))
-            + torch.sum(torch.square(self.w_selection_y))
+            sum(
+                torch.sum(torch.square(self.w_selections[i]))
+                for i in range(self.num_modalities)
+            )
         )
 
-        x_mask = (x != 0).float()
-        reconstruct_x = torch.sum(torch.norm(x_mask * (x_hat - x), dim=1)) / torch.sum(
-            x_mask
-        )
-        reconstruct_y = torch.mean(torch.norm(y_hat - y, dim=1))
-        reconstruct_loss = reconstruct_x + reconstruct_y
+        # !! reconstruct loss of x and y are differently calculated
+        # where x_mask is used for x for weight selection and 1 is used for y
+        x_mask = (inputs != 0).float()
+        reconstruct_loss = torch.sum(
+            torch.norm(x_mask * (inputs_hat - inputs), dim=2)
+        ) / torch.sum(x_mask)
 
         if triplet_lambda > 0:
-            trip_loss_x = batch_hard_triplet_loss(label_x, z, triplet_margin)
-            trip_loss_y = batch_hard_triplet_loss(label_y, z, triplet_margin)
+            if labels is not None:
+                trip_losses = [
+                    batch_hard_triplet_loss(labels[i], z, triplet_margin)
+                    for i in range(self.num_modalities)
+                ]
+            else:
+                raise ValueError("Labels are required for triplet loss")
         else:
-            trip_loss_x = 0
-            trip_loss_y = 0
+            trip_losses = [
+                torch.tensor(0.0, dtype=torch.float16, device=z.device)
+                for _ in range(self.num_modalities)
+            ]
+        trip_loss = sum(trip_losses)
 
         loss = (
             reconstruct_loss
             + self.weight_penalty * sparse_penalty
-            + triplet_lambda * trip_loss_x
-            + triplet_lambda * trip_loss_y
+            + triplet_lambda * trip_loss
         )
 
         return (
             z,
-            x_hat,
-            y_hat,
-            encode_x,
-            encode_y,
+            inputs_hat,
+            encoded_inputs,
             loss,
             reconstruct_loss,
             sparse_penalty,
-            trip_loss_x,
-            trip_loss_y,
+            trip_loss,
         )
 
-    def encode(self, x, y):
-        h_x = self.encoder_x(x)
-        h_y = self.encoder_y(y)
-        h = torch.cat([h_x, h_y], dim=1)
-        z = self.fc_latent(h)
-        return z, h_x, h_y
+    def encode(self, inputs):
+        hs = [self.encoders[i](inputs[i]) for i in range(self.num_modalities)]
+        cat_hs = torch.cat(hs, dim=1)
+        encoded_inputs = torch.stack(hs, dim=0)
+        z = self.fc_latent(cat_hs)
+        return z, encoded_inputs
 
 
 class Encoder(nn.Module):

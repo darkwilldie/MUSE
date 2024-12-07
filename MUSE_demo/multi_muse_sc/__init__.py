@@ -18,74 +18,56 @@ cluster_update_epoch = 200  # epoch interval to update modality-specific cluster
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def randomly_permute_samples(n_sample, data_x, data_y, label_x=None, label_y=None):
+def randomly_permute_samples(n_sample, inputs, labels=None):
     random_idx = np.random.permutation(n_sample)
-    data_train_x = data_x[random_idx, :]
-    data_train_y = data_y[random_idx, :]
-    if label_x is not None and label_y is not None:
-        label_train_x = label_x[random_idx]
-        label_train_y = label_y[random_idx]
-        return data_train_x, data_train_y, label_train_x, label_train_y
-    return data_train_x, data_train_y
+    data_train = [inputs[i][random_idx, :] for i in range(len(inputs))]
+    if labels is not None:
+        label_train = [labels[i][random_idx] for i in range(len(labels))]
+        return data_train, label_train
+    return data_train
 
 
-def get_batch_tensors(i, n_sample, data_x, data_y, label_x=None, label_y=None):
-
+def get_batch_tensors(i, n_sample, data_inputs, label_inputs=None):
     offset = (i * batch_size) % (n_sample)
-    batch_x_input = torch.tensor(
-        data_x[offset : (offset + batch_size), :], dtype=torch.float32
-    ).to(device)
-    batch_y_input = torch.tensor(
-        data_y[offset : (offset + batch_size), :], dtype=torch.float32
-    ).to(device)
-    if label_x is not None and label_y is not None:
-        label_x_input = torch.tensor(
-            label_x[offset : (offset + batch_size)], dtype=torch.float32
-        ).to(device)
-        label_y_input = torch.tensor(
-            label_y[offset : (offset + batch_size)], dtype=torch.float32
-        ).to(device)
-    else:
-        label_x_input = torch.zeros(batch_x_input.size(0)).to(device)
-        label_y_input = torch.zeros(batch_y_input.size(0)).to(device)
-    return batch_x_input, batch_y_input, label_x_input, label_y_input
+
+    # 先将列表转换为单个numpy数组，再转换为tensor
+    batch_inputs = [
+        data_input[offset : (offset + batch_size), :].reshape(batch_size, -1)
+        for data_input in data_inputs
+    ]
+    # 使用np.stack将列表转换为单个numpy数组
+    batch_inputs = np.stack(batch_inputs)
+    batch_inputs = torch.from_numpy(batch_inputs).float().to(device)
+
+    if label_inputs is not None:
+        batch_labels = [
+            label_input[offset : (offset + batch_size)].reshape(-1)
+            for label_input in label_inputs
+        ]
+        # 同样优化标签数据的转换
+        batch_labels = np.stack(batch_labels)
+        batch_labels = torch.from_numpy(batch_labels).float().to(device)
+        return batch_inputs, batch_labels
+
+    return batch_inputs
 
 
-def get_all_tensor(data_train_x, data_train_y, label_train_x=None, label_train_y=None):
-    data_train_x_tensor = torch.tensor(data_train_x, dtype=torch.float32).to(device)
-    data_train_y_tensor = torch.tensor(data_train_y, dtype=torch.float32).to(device)
-    if label_train_x is not None and label_train_y is not None:
-        label_train_x_tensor = torch.tensor(label_train_x, dtype=torch.float32).to(
-            device
-        )
-        label_train_y_tensor = torch.tensor(label_train_y, dtype=torch.float32).to(
-            device
-        )
-        return (
-            data_train_x_tensor,
-            data_train_y_tensor,
-            label_train_x_tensor,
-            label_train_y_tensor,
-        )
-    else:
-        label_train_x_tensor = torch.zeros(data_train_x.shape[0]).to(device)
-        label_train_y_tensor = torch.zeros(data_train_y.shape[0]).to(device)
-    return (
-        data_train_x_tensor,
-        data_train_y_tensor,
-        label_train_x_tensor,
-        label_train_y_tensor,
-    )
+def get_all_tensor(data_inputs, label_inputs=None):
+    data_inputs = np.stack(data_inputs)
+    data_inputs_tensor = torch.from_numpy(data_inputs).float().to(device)
+    if label_inputs is not None:
+        label_inputs = np.stack(label_inputs)
+        label_inputs_tensor = torch.from_numpy(label_inputs).float().to(device)
+        return data_inputs_tensor, label_inputs_tensor
+    return data_inputs_tensor
 
 
 """ Model fitting and feature prediction of MUSE """
 
 
 def muse_fit_predict(
-    data_x,
-    data_y,
-    label_x,
-    label_y,
+    data_inputs,
+    label_inputs,
     latent_dim=100,
     n_epochs=500,
     weight_penalty=5,
@@ -93,13 +75,11 @@ def muse_fit_predict(
 ):
 
     # read data-specific parameters from inputs
-    feature_dim_x = data_x.shape[1]
-    feature_dim_y = data_y.shape[1]
-    n_sample = data_x.shape[0]
+    feature_dims = [data_input.shape[1] for data_input in data_inputs]
+    n_sample = data_inputs[0].shape[0]
 
     model = MUSE(
-        feature_dim_x,
-        feature_dim_y,
+        feature_dims,
         latent_dim,
         n_hidden,
         weight_penalty,
@@ -113,34 +93,23 @@ def muse_fit_predict(
     model.train()
     for epoch in range(n_epochs_init):
         # randomly permute samples
-        data_train_x, data_train_y = randomly_permute_samples(n_sample, data_x, data_y)
+        data_train_inputs = randomly_permute_samples(n_sample, data_inputs)
 
         for i in range(total_batch):
             # input data batches
-            batch_x_input, batch_y_input, label_x_input, label_y_input = (
-                get_batch_tensors(i, n_sample, data_train_x, data_train_y)
-            )
+            batch_inputs = get_batch_tensors(i, n_sample, data_train_inputs)
 
             optimizer.zero_grad()
-            _, _, _, _, _, loss, _, _, _, _ = model(
-                batch_x_input, batch_y_input, label_x_input, label_y_input
-            )
+            _, _, _, loss, _, _, _ = model(batch_inputs)
             loss.backward()
             optimizer.step()
 
         # calculate and print loss terms for current epoch
         if epoch % print_epochs == 0:
             with torch.no_grad():
-                (
-                    data_train_x_tensor,
-                    data_train_y_tensor,
-                    label_train_x_tensor,
-                    label_train_y_tensor,
-                ) = get_all_tensor(data_train_x, data_train_y)
+                data_inputs_tensor = get_all_tensor(data_train_inputs)
 
                 (
-                    _,
-                    _,
                     _,
                     _,
                     _,
@@ -148,13 +117,7 @@ def muse_fit_predict(
                     reconstruction_error,
                     sparse_penalty,
                     _,
-                    _,
-                ) = model(
-                    data_train_x_tensor,
-                    data_train_y_tensor,
-                    label_train_x_tensor,
-                    label_train_y_tensor,
-                )
+                ) = model(data_inputs_tensor)
 
                 print(
                     f"epoch: {epoch}, \t total loss: {loss.item():03.5f},\t reconstruction loss: {reconstruction_error.item():03.5f},\t sparse penalty: {sparse_penalty.item():03.5f}"
@@ -162,16 +125,9 @@ def muse_fit_predict(
 
     # estimate the margin for the triplet loss
     with torch.no_grad():
-        data_x_tensor, data_y_tensor, label_x_tensor, label_y_tensor = get_all_tensor(
-            data_x, data_y
-        )
+        data_inputs_tensor = get_all_tensor(data_inputs)
 
-        latent, reconstruct_x, reconstruct_y, _, _, _, _, _, _, _ = model(
-            data_x_tensor,
-            data_y_tensor,
-            label_x_tensor,
-            label_y_tensor,
-        )
+        latent, _, _, _, _, _, _ = model(data_inputs_tensor)
         latent = latent.cpu().numpy()
         latent_pd_matrix = pdist(latent, "euclidean")
         latent_pd_sort = np.sort(latent_pd_matrix)
@@ -183,29 +139,22 @@ def muse_fit_predict(
     # refine MUSE parameters with reference labels and triplet losses
     for epoch in range(n_epochs_init):
         # randomly permute samples
-        data_train_x, data_train_y, label_train_x, label_train_y = (
-            randomly_permute_samples(n_sample, data_x, data_y, label_x, label_y)
+        data_train_inputs, label_train_inputs = randomly_permute_samples(
+            n_sample, data_inputs, label_inputs
         )
 
         for i in range(total_batch):
             # data batches
-            batch_x_input, batch_y_input, label_x_input, label_y_input = (
-                get_batch_tensors(
-                    i,
-                    n_sample,
-                    data_train_x,
-                    data_train_y,
-                    label_train_x,
-                    label_train_y,
-                )
+            batch_train_inputs, batch_train_labels = get_batch_tensors(
+                i,
+                n_sample,
+                data_train_inputs,
+                label_train_inputs,
             )
-
             optimizer.zero_grad()
-            _, _, _, _, _, loss, _, _, _, _ = model(
-                batch_x_input,
-                batch_y_input,
-                label_x_input,
-                label_y_input,
+            _, _, _, loss, _, _, _ = model(
+                batch_train_inputs,
+                batch_train_labels,
                 triplet_margin=margin_estimate,
                 triplet_lambda=triplet_lambda,
             )
@@ -215,90 +164,71 @@ def muse_fit_predict(
         # calculate loss on all input data for current epoch
         if epoch % print_epochs == 0:
             with torch.no_grad():
-                (
-                    data_train_x_tensor,
-                    data_train_y_tensor,
-                    label_train_x_tensor,
-                    label_train_y_tensor,
-                ) = get_all_tensor(
-                    data_train_x, data_train_y, label_train_x, label_train_y
+                data_train_inputs_tensor, label_train_inputs_tensor = get_all_tensor(
+                    data_train_inputs, label_train_inputs
                 )
 
                 (
-                    _,
-                    _,
                     _,
                     _,
                     _,
                     loss,
                     reconstruction_error,
                     weight_penalty,
-                    trip_loss_x,
-                    trip_loss_y,
+                    trip_loss,
                 ) = model(
-                    data_train_x_tensor,
-                    data_train_y_tensor,
-                    label_train_x_tensor,
-                    label_train_y_tensor,
+                    data_train_inputs_tensor,
+                    label_train_inputs_tensor,
                     triplet_margin=margin_estimate,
                     triplet_lambda=triplet_lambda,
                 )
 
                 print(
-                    f"epoch: {epoch}, \t total loss: {loss.item():03.5f},\t reconstruction loss: {reconstruction_error.item():03.5f},\t sparse penalty: {weight_penalty.item():03.5f},\t x triplet: {trip_loss_x.item():03.5f},\t y triplet: {trip_loss_y.item():03.5f}"
+                    f"epoch: {epoch}, \t total loss: {loss.item():03.5f},\t reconstruction loss: {reconstruction_error.item():03.5f},\t sparse penalty: {weight_penalty.item():03.5f},\t triplet loss: {trip_loss.item():03.5f}"
                 )
 
     # update cluster labels based modality-specific latents
     with torch.no_grad():
-        data_x_tensor, data_y_tensor, label_x_tensor, label_y_tensor = get_all_tensor(
-            data_x, data_y, label_x, label_y
+        data_inputs_tensor, label_inputs_tensor = get_all_tensor(
+            data_inputs, label_inputs
         )
 
-        _, _, _, latent_x, latent_y, _, _, _, _, _ = model(
-            data_x_tensor,
-            data_y_tensor,
-            label_x_tensor,
-            label_y_tensor,
+        latent, _, encoded_inputs, _, _, _, _ = model(
+            data_inputs_tensor,
+            label_inputs_tensor,
             triplet_margin=margin_estimate,
             triplet_lambda=triplet_lambda,
         )
-        latent_x = latent_x.cpu().numpy()
-        latent_y = latent_y.cpu().numpy()
+        encoded_inputs = encoded_inputs.cpu().numpy()
 
         # update cluster labels using PhenoGraph
-        label_x_update, _, _ = phenograph.cluster(latent_x)
-        label_y_update, _, _ = phenograph.cluster(latent_y)
+        # print(encoded_inputs.shape)
+        # print(latent.shape)
+        # quit()
+        labels_update = [phenograph.cluster(z)[0] for z in encoded_inputs]
         print("Finish initialization of MUSE")
 
     """ Training of MUSE """
     for epoch in range(n_epochs):
         # randomly permute samples
-        data_train_x, data_train_y, label_train_x, label_train_y = (
-            randomly_permute_samples(
-                n_sample, data_x, data_y, label_x_update, label_y_update
-            )
+        data_train_inputs, label_train_inputs = randomly_permute_samples(
+            n_sample, data_inputs, labels_update
         )
 
         # loop over all batches
         for i in range(total_batch):
             # batch data
-            batch_x_input, batch_y_input, batch_label_x_input, batch_label_y_input = (
-                get_batch_tensors(
-                    i,
-                    n_sample,
-                    data_train_x,
-                    data_train_y,
-                    label_train_x,
-                    label_train_y,
-                )
+            batch_inputs, label_inputs = get_batch_tensors(
+                i,
+                n_sample,
+                data_train_inputs,
+                label_train_inputs,
             )
 
             optimizer.zero_grad()
-            _, _, _, _, _, loss, _, _, _, _ = model(
-                batch_x_input,
-                batch_y_input,
-                batch_label_x_input,
-                batch_label_y_input,
+            _, _, _, loss, _, _, _ = model(
+                batch_inputs,
+                label_inputs,
                 triplet_margin=margin_estimate,
                 triplet_lambda=triplet_lambda,
             )
@@ -308,80 +238,62 @@ def muse_fit_predict(
         # calculate and print losses on whole training dataset
         if epoch % print_epochs == 0:
             with torch.no_grad():
-                (
-                    data_train_x_tensor,
-                    data_train_y_tensor,
-                    label_train_x_tensor,
-                    label_train_y_tensor,
-                ) = get_all_tensor(
-                    data_train_x, data_train_y, label_train_x, label_train_y
+                data_train_inputs_tensor, label_train_inputs_tensor = get_all_tensor(
+                    data_train_inputs, label_train_inputs
                 )
                 (
-                    _,
-                    _,
                     _,
                     _,
                     _,
                     loss,
                     reconstruction_error,
                     weight_penalty,
-                    trip_loss_x,
-                    trip_loss_y,
+                    trip_loss,
                 ) = model(
-                    data_train_x_tensor,
-                    data_train_y_tensor,
-                    label_train_x_tensor,
-                    label_train_y_tensor,
+                    data_train_inputs_tensor,
+                    label_train_inputs_tensor,
                     triplet_margin=margin_estimate,
                     triplet_lambda=triplet_lambda,
                 )
 
                 print(
-                    f"epoch: {epoch}, \t total loss: {loss.item():03.5f},\t reconstruction loss: {reconstruction_error.item():03.5f},\t sparse penalty: {weight_penalty.item():03.5f},\t x triplet loss: {trip_loss_x.item():03.5f},\t y triplet loss: {trip_loss_y.item():03.5f}"
+                    f"epoch: {epoch}, \t total loss: {loss.item():03.5f},\t reconstruction loss: {reconstruction_error.item():03.5f},\t sparse penalty: {weight_penalty.item():03.5f},\t triplet loss: {trip_loss.item():03.5f}"
                 )
 
         # update cluster labels based on new modality-specific latent representations
         if epoch % cluster_update_epoch == 0:
             with torch.no_grad():
-                data_x_tensor, data_y_tensor, label_x_tensor, label_y_tensor = (
-                    get_all_tensor(data_x, data_y, label_x_update, label_y_update)
+                data_inputs_tensor, label_inputs_tensor = get_all_tensor(
+                    data_inputs, labels_update
                 )
 
-                _, _, _, latent_x, latent_y, _, _, _, _, _ = model(
-                    data_x_tensor,
-                    data_y_tensor,
-                    label_x_tensor,
-                    label_y_tensor,
+                _, _, encoded_inputs, _, _, _, _ = model(
+                    data_inputs_tensor,
+                    label_inputs_tensor,
                     triplet_margin=margin_estimate,
                     triplet_lambda=triplet_lambda,
                 )
-                latent_x = latent_x.cpu().numpy()
-                latent_y = latent_y.cpu().numpy()
+                encoded_inputs = encoded_inputs.cpu().numpy()
 
                 # use PhenoGraph to obtain cluster label
-                label_x_update, _, _ = phenograph.cluster(latent_x)
-                label_y_update, _, _ = phenograph.cluster(latent_y)
+                labels_update = [phenograph.cluster(z)[0] for z in encoded_inputs]
 
     """ MUSE output """
     with torch.no_grad():
-        data_x_tensor, data_y_tensor, label_x_tensor, label_y_tensor = get_all_tensor(
-            data_x, data_y, label_x_update, label_y_update
+        data_inputs_tensor, label_inputs_tensor = get_all_tensor(
+            data_inputs, labels_update
         )
 
-        latent, reconstruct_x, reconstruct_y, latent_x, latent_y, _, _, _, _, _ = model(
-            data_x_tensor,
-            data_y_tensor,
-            label_x_tensor,
-            label_y_tensor,
+        latent, reconstruct_inputs, encoded_inputs, _, _, _, _ = model(
+            data_inputs_tensor,
+            label_inputs_tensor,
             triplet_margin=margin_estimate,
             triplet_lambda=triplet_lambda,
         )
         latent = latent.cpu().numpy()
-        reconstruct_x = reconstruct_x.cpu().numpy()
-        reconstruct_y = reconstruct_y.cpu().numpy()
-        latent_x = latent_x.cpu().numpy()
-        latent_y = latent_y.cpu().numpy()
+        reconstruct_inputs = reconstruct_inputs.cpu().numpy()
+        encoded_inputs = encoded_inputs.cpu().numpy()
 
     print("++++++++++ MUSE completed ++++++++++")
 
-    return latent, reconstruct_x, reconstruct_y, latent_x, latent_y
+    return latent, reconstruct_inputs, encoded_inputs
