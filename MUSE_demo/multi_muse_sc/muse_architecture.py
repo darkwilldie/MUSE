@@ -136,11 +136,15 @@ class DualMUSE(nn.Module):
 
         # 计算相似度矩阵
         logits = torch.mm(z1, z2.t()) / self.temperature
-        # print(f"logits: {logits}")
-        # quit()
 
         # 创建标签（对角线为正样本）
         labels = torch.arange(z1.shape[0], device=z1.device)
+        # # 计算logits中最相似的正样本
+        # max_logits, max_indices = torch.max(logits, dim=1)
+        # print(f"max_logits: {max_logits}")
+        # print(f"max_indices: {max_indices}")
+        # print(f"accuracy: {max_indices.eq(labels).float().mean()}")
+        # quit()
 
         # 计算对比损失
         loss = F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)

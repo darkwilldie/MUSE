@@ -18,6 +18,55 @@ cluster_update_epoch = 200  # epoch interval to update modality-specific cluster
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def dual_randomly_permute(
+    n_sample, sc_inputs, st_inputs, sc_labels=None, st_labels=None
+):
+    random_idx = np.random.permutation(n_sample)
+    sc_train_inputs = [sc_inputs[i][random_idx, :] for i in range(len(sc_inputs))]
+    st_train_inputs = [st_inputs[i][random_idx, :] for i in range(len(st_inputs))]
+    if sc_labels is not None and st_labels is not None:
+        sc_train_labels = [sc_labels[i][random_idx] for i in range(len(sc_labels))]
+        st_train_labels = [st_labels[i][random_idx] for i in range(len(st_labels))]
+        return sc_train_inputs, st_train_inputs, sc_train_labels, st_train_labels
+    return sc_train_inputs, st_train_inputs
+
+
+def dual_get_batch_tensors(i, n_sample, sc_inputs, st_inputs, sc_labels, st_labels):
+    offset = (i * batch_size) % (n_sample)
+    sc_batch_inputs = [
+        sc_inputs[i][offset : (offset + batch_size), :].reshape(batch_size, -1)
+        for i in range(len(sc_inputs))
+    ]
+    st_batch_inputs = [
+        st_inputs[i][offset : (offset + batch_size), :].reshape(batch_size, -1)
+        for i in range(len(st_inputs))
+    ]
+    sc_batch_inputs = np.stack(sc_batch_inputs)
+    st_batch_inputs = np.stack(st_batch_inputs)
+    sc_batch_tensors = torch.from_numpy(sc_batch_inputs).float().to(device)
+    st_batch_tensors = torch.from_numpy(st_batch_inputs).float().to(device)
+    if sc_labels is not None and st_labels is not None:
+        sc_batch_labels = [
+            sc_labels[i][offset : (offset + batch_size)].reshape(-1)
+            for i in range(len(sc_labels))
+        ]
+        st_batch_labels = [
+            st_labels[i][offset : (offset + batch_size)].reshape(-1)
+            for i in range(len(st_labels))
+        ]
+        sc_batch_labels = np.stack(sc_batch_labels)
+        st_batch_labels = np.stack(st_batch_labels)
+        sc_batch_label_tensors = torch.from_numpy(sc_batch_labels).float().to(device)
+        st_batch_label_tensors = torch.from_numpy(st_batch_labels).float().to(device)
+        return (
+            sc_batch_tensors,
+            st_batch_tensors,
+            sc_batch_label_tensors,
+            st_batch_label_tensors,
+        )
+    return sc_batch_tensors, st_batch_tensors
+
+
 def randomly_permute_samples(n_sample, inputs, labels=None):
     random_idx = np.random.permutation(n_sample)
     data_train = [inputs[i][random_idx, :] for i in range(len(inputs))]
@@ -330,20 +379,39 @@ def dual_muse_fit_predict(
     # initially train the model
     for epoch in range(n_epochs_init):
         # 随机打乱数据
-        data_train_sc, label_train_sc = randomly_permute_samples(
-            n_sample, data_inputs_sc, label_inputs_sc
-        )
-        data_train_st, label_train_st = randomly_permute_samples(
-            n_sample, data_inputs_st, label_inputs_st
+        # data_train_sc, label_train_sc = randomly_permute_samples(
+        #     n_sample, data_inputs_sc, label_inputs_sc
+        # )
+        # data_train_st, label_train_st = randomly_permute_samples(
+        #     n_sample, data_inputs_st, label_inputs_st
+        # )
+        data_train_sc, data_train_st, label_train_sc, label_train_st = (
+            dual_randomly_permute(
+                n_sample,
+                data_inputs_sc,
+                data_inputs_st,
+                label_inputs_sc,
+                label_inputs_st,
+            )
         )
 
         # 批次训练
         for i in range(total_batch):
-            batch_sc, batch_labels_sc = get_batch_tensors(
-                i, n_sample, data_train_sc, label_train_sc
-            )
-            batch_st, batch_labels_st = get_batch_tensors(
-                i, n_sample, data_train_st, label_train_st
+            # batch_sc, batch_labels_sc = get_batch_tensors(
+            #     i, n_sample, data_train_sc, label_train_sc
+            # )
+            # batch_st, batch_labels_st = get_batch_tensors(
+            #     i, n_sample, data_train_st, label_train_st
+            # )
+            batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
+                dual_get_batch_tensors(
+                    i,
+                    n_sample,
+                    data_train_sc,
+                    data_train_st,
+                    label_train_sc,
+                    label_train_st,
+                )
             )
 
             optimizer.zero_grad()
@@ -394,18 +462,37 @@ def dual_muse_fit_predict(
     # refine MUSE parameters with reference labels and triplet losses
     for epoch in range(n_epochs_init):
         # randomly permute samples
-        data_train_sc, label_train_sc = randomly_permute_samples(
-            n_sample, data_inputs_sc, label_inputs_sc
-        )
-        data_train_st, label_train_st = randomly_permute_samples(
-            n_sample, data_inputs_st, label_inputs_st
+        # data_train_sc, label_train_sc = randomly_permute_samples(
+        #     n_sample, data_inputs_sc, label_inputs_sc
+        # )
+        # data_train_st, label_train_st = randomly_permute_samples(
+        #     n_sample, data_inputs_st, label_inputs_st
+        # )
+        data_train_sc, data_train_st, label_train_sc, label_train_st = (
+            dual_randomly_permute(
+                n_sample,
+                data_inputs_sc,
+                data_inputs_st,
+                label_inputs_sc,
+                label_inputs_st,
+            )
         )
         for i in range(total_batch):
-            batch_sc, batch_labels_sc = get_batch_tensors(
-                i, n_sample, data_train_sc, label_train_sc
-            )
-            batch_st, batch_labels_st = get_batch_tensors(
-                i, n_sample, data_train_st, label_train_st
+            # batch_sc, batch_labels_sc = get_batch_tensors(
+            #     i, n_sample, data_train_sc, label_train_sc
+            # )
+            # batch_st, batch_labels_st = get_batch_tensors(
+            #     i, n_sample, data_train_st, label_train_st
+            # )
+            batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
+                dual_get_batch_tensors(
+                    i,
+                    n_sample,
+                    data_train_sc,
+                    data_train_st,
+                    label_train_sc,
+                    label_train_st,
+                )
             )
 
             optimizer.zero_grad()
@@ -470,18 +557,37 @@ def dual_muse_fit_predict(
     """ Training of DualMUSE """
     for epoch in range(n_epochs):
         # randomly permute samples
-        data_train_sc, label_train_sc = randomly_permute_samples(
-            n_sample, data_inputs_sc, labels_update_sc
-        )
-        data_train_st, label_train_st = randomly_permute_samples(
-            n_sample, data_inputs_st, labels_update_st
+        # data_train_sc, label_train_sc = randomly_permute_samples(
+        #     n_sample, data_inputs_sc, labels_update_sc
+        # )
+        # data_train_st, label_train_st = randomly_permute_samples(
+        #     n_sample, data_inputs_st, labels_update_st
+        # )
+        data_train_sc, data_train_st, label_train_sc, label_train_st = (
+            dual_randomly_permute(
+                n_sample,
+                data_inputs_sc,
+                data_inputs_st,
+                labels_update_sc,
+                labels_update_st,
+            )
         )
         for i in range(total_batch):
-            batch_sc, batch_labels_sc = get_batch_tensors(
-                i, n_sample, data_train_sc, label_train_sc
-            )
-            batch_st, batch_labels_st = get_batch_tensors(
-                i, n_sample, data_train_st, label_train_st
+            # batch_sc, batch_labels_sc = get_batch_tensors(
+            #     i, n_sample, data_train_sc, label_train_sc
+            # )
+            # batch_st, batch_labels_st = get_batch_tensors(
+            #     i, n_sample, data_train_st, label_train_st
+            # )
+            batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
+                dual_get_batch_tensors(
+                    i,
+                    n_sample,
+                    data_train_sc,
+                    data_train_st,
+                    label_train_sc,
+                    label_train_st,
+                )
             )
 
             optimizer.zero_grad()
