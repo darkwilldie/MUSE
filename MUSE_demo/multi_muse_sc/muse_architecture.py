@@ -35,7 +35,7 @@ class MUSE(nn.Module):
             ]
         )
 
-        sparse_penalty = torch.sqrt(
+        sparse_penalty = self.weight_penalty * torch.sqrt(
             sum(
                 torch.sum(torch.square(self.w_selections[i]))
                 for i in range(self.num_modalities)
@@ -59,16 +59,11 @@ class MUSE(nn.Module):
                 raise ValueError("Labels are required for triplet loss")
         else:
             trip_losses = [
-                torch.tensor(0.0, dtype=torch.float16, device=z.device)
-                for _ in range(self.num_modalities)
+                torch.tensor(0.0, device=z.device) for _ in range(self.num_modalities)
             ]
-        trip_loss = sum(trip_losses)
+        trip_loss = triplet_lambda * sum(trip_losses)
 
-        loss = (
-            reconstruct_loss
-            + self.weight_penalty * sparse_penalty
-            + triplet_lambda * trip_loss
-        )
+        loss = reconstruct_loss + sparse_penalty + trip_loss
 
         return (
             z,
@@ -112,3 +107,90 @@ class Decoder(nn.Module):
         h1 = F.tanh(self.fc2(h0))
         y = self.fc3(h1)
         return y
+
+
+class DualMUSE(nn.Module):
+    def __init__(
+        self,
+        dims_sc,  # single cell模态的维度列表
+        dims_st,  # transcriptome模态的维度列表
+        dim_z,  # 潜在空间维度
+        n_hidden,  # 隐藏层节点数
+        weight_penalty,  # 权重惩罚系数
+        temperature=0.07,  # InfoNCE loss的温度参数
+    ):
+        super(DualMUSE, self).__init__()
+
+        # 创建两个MUSE模型
+        self.muse_sc = MUSE(dims_sc, dim_z, n_hidden, weight_penalty)
+        self.muse_st = MUSE(dims_st, dim_z, n_hidden, weight_penalty)
+
+        # InfoNCE loss的温度参数
+        self.temperature = temperature
+
+    def info_nce_loss(self, z1, z2):
+        """计算InfoNCE loss"""
+        # 归一化特征
+        z1 = F.normalize(z1, dim=1)
+        z2 = F.normalize(z2, dim=1)
+
+        # 计算相似度矩阵
+        logits = torch.mm(z1, z2.t()) / self.temperature
+        # print(f"logits: {logits}")
+        # quit()
+
+        # 创建标签（对角线为正样本）
+        labels = torch.arange(z1.shape[0], device=z1.device)
+
+        # 计算对比损失
+        loss = F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)
+        return loss / 2
+
+    def forward(
+        self,
+        inputs_sc,  # single cell数据
+        inputs_st,  # transcriptome数据
+        labels_sc=None,
+        labels_st=None,
+        triplet_margin=[0, 0],
+        triplet_lambda=0,
+        info_nce_lambda=1.0,  # InfoNCE loss的权重
+    ):
+        # 前向传播两个MUSE模型
+        (
+            z_sc,
+            inputs_hat_sc,
+            encoded_sc,
+            loss_sc,
+            recon_loss_sc,
+            sparse_penalty_sc,
+            trip_loss_sc,
+        ) = self.muse_sc(inputs_sc, labels_sc, triplet_margin[0], triplet_lambda)
+
+        (
+            z_st,
+            inputs_hat_st,
+            encoded_st,
+            loss_st,
+            recon_loss_st,
+            sparse_penalty_st,
+            trip_loss_st,
+        ) = self.muse_st(inputs_st, labels_st, triplet_margin[1], triplet_lambda)
+
+        # 计算InfoNCE loss
+        info_nce = info_nce_lambda * self.info_nce_loss(z_sc, z_st)
+
+        # 总损失
+        total_loss = loss_sc + loss_st + info_nce
+
+        return (
+            (z_sc, z_st),  # 两个模态的潜在表示
+            (inputs_hat_sc, inputs_hat_st),  # 重构输出
+            (encoded_sc, encoded_st),  # 编码器输出
+            total_loss,  # 总损失
+            (loss_sc, loss_st),  # 各自的MUSE损失
+            info_nce,  # InfoNCE loss
+            (recon_loss_sc, recon_loss_st),  # 重构损失
+            (sparse_penalty_sc, sparse_penalty_st),  # 稀疏惩罚
+            (trip_loss_sc, trip_loss_st),  # 三元组损失
+        )
