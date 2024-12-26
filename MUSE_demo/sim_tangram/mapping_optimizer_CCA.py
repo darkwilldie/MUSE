@@ -30,30 +30,22 @@ def cos_sim(sc_feature, other_feature):
     return cos_sim_matrix
 
 
-# def cos_sim_dig(sc_feature, other_feature):
-#     sc_feature = F.normalize(sc_feature, dim=1)
-#     other_feature = F.normalize(other_feature, dim=1)
-#     cos_sim_matrix = torch.sum(sc_feature * other_feature, dim=1, keepdim=True)
-#     assert cos_sim_matrix.shape == (sc_feature.shape[0], 1)
-#     return cos_sim_matrix
-
-
 # 计算pearson相关系数
 def torch_corrcoef(X, Y):
     X_demean = X - torch.mean(X, dim=1, keepdim=True)
     Y_demean = Y - torch.mean(Y, dim=1, keepdim=True)
-    cov_matrix = torch.matmul(X_demean.transpose(1, 2), Y_demean) / (X.shape[1] - 1)
+    cov_matrix = torch.sum(X_demean * Y_demean, dim=1) / (X.shape[1] - 1)
 
-    X_std = torch.std(X_demean, dim=1)
-    Y_std = torch.std(Y_demean, dim=1)
+    X_std = torch.std(X_demean, dim=1, keepdim=True)
+    Y_std = torch.std(Y_demean, dim=1, keepdim=True)
 
-    out = torch.einsum("bi,bj->bij", X_std, Y_std)
+    out = torch.sum(X_std * Y_std, dim=1)
     corr_matrix = cov_matrix / out
 
     return corr_matrix
 
 
-def torch_cca(X, Y, n_components=2, reg_param=1e-5):
+def torch_cca(X, Y, n_components=1, reg_param=1e-5):
     # 确保 X 和 Y 是三维矩阵
     if X.ndim != 3:
         raise ValueError(
@@ -106,8 +98,6 @@ def torch_cca(X, Y, n_components=2, reg_param=1e-5):
     X_c = torch.matmul(whitened_x, u[:, :, :n_components])
     Y_c = torch.matmul(whitened_y, v[:, :, :n_components])
 
-    assert X_c.shape == X.shape, f"X_c: {X_c.shape}, X: {X.shape}"
-    assert Y_c.shape == Y.shape, f"Y_c: {Y_c.shape}, Y: {Y.shape}"
     correlations_matrix = torch_corrcoef(X_c, Y_c)
 
     return X_c, Y_c, correlations_matrix
@@ -122,8 +112,9 @@ def calculate_correlations(G_pred, G):
     #         cos_sim_list.append(cos_sim_dig(G_pred[:, :, j], G[:, :, i]).unsqueeze(-1))
     # cos_sim1 = torch.mean(torch.stack(cos_sim_list, dim=-1), dim=-1)
     # cos_sim1 = cos_sim_dig(G_pred[:, :, 0], G[:, :, 0]).unsqueeze(-1)
-    cos_sim1 = cosine_similarity(G_pred[:, :, 0], G[:, :, 0]).unsqueeze(-1).unsqueeze(-1)
+    cos_sim1 = cosine_similarity(G_pred[:, :, 0], G[:, :, 0]).unsqueeze(-1)
     # CCA计算典型变量的相关性
+    # 只计算一个典型变量
     X_c_torch, Y_c_torch, torch_correlations = torch_cca(G_pred, G, n_components=1)
     # print("torch_correlations:\n", torch_correlations)
     assert (
