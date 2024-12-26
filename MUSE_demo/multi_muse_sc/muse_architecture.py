@@ -144,7 +144,6 @@ class DualMUSE(nn.Module):
         # print(f"max_logits: {max_logits}")
         # print(f"max_indices: {max_indices}")
         # print(f"accuracy: {max_indices.eq(labels).float().mean()}")
-        # quit()
 
         # 计算对比损失
         loss = F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)
@@ -180,6 +179,13 @@ class DualMUSE(nn.Module):
             sparse_penalty_st,
             trip_loss_st,
         ) = self.muse_st(inputs_st, labels_st, triplet_margin[1], triplet_lambda)
+
+        assert (
+            inputs_hat_sc.shape == inputs_sc.shape
+        ), f"inputs_hat_sc.shape: {inputs_hat_sc.shape}, inputs_sc.shape: {inputs_sc.shape}"
+        assert (
+            inputs_hat_st.shape == inputs_st.shape
+        ), f"inputs_hat_st.shape: {inputs_hat_st.shape}, inputs_st.shape: {inputs_st.shape}"
 
         # 计算InfoNCE loss
         info_nce = info_nce_lambda * self.info_nce_loss(z_sc, z_st)

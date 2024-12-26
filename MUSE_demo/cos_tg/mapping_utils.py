@@ -7,7 +7,7 @@ import pandas as pd
 import scanpy as sc
 import torch
 import logging
-from . import mapping_optimizer_CCA as mo
+from . import mapping_optimizer as mo
 
 # from . import utils as ut
 

@@ -4,7 +4,7 @@ import random
 from copy import deepcopy
 
 # for the replication of the same simulation data, uncomment next line
-# np.random.seed(2020)
+np.random.seed(2020)
 
 
 """ Function to generate simulation data with two modalities """

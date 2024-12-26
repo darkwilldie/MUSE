@@ -379,12 +379,6 @@ def dual_muse_fit_predict(
     # initially train the model
     for epoch in range(n_epochs_init):
         # 随机打乱数据
-        # data_train_sc, label_train_sc = randomly_permute_samples(
-        #     n_sample, data_inputs_sc, label_inputs_sc
-        # )
-        # data_train_st, label_train_st = randomly_permute_samples(
-        #     n_sample, data_inputs_st, label_inputs_st
-        # )
         data_train_sc, data_train_st, label_train_sc, label_train_st = (
             dual_randomly_permute(
                 n_sample,
@@ -397,12 +391,6 @@ def dual_muse_fit_predict(
 
         # 批次训练
         for i in range(total_batch):
-            # batch_sc, batch_labels_sc = get_batch_tensors(
-            #     i, n_sample, data_train_sc, label_train_sc
-            # )
-            # batch_st, batch_labels_st = get_batch_tensors(
-            #     i, n_sample, data_train_st, label_train_st
-            # )
             batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
                 dual_get_batch_tensors(
                     i,
@@ -461,13 +449,6 @@ def dual_muse_fit_predict(
             )
     # refine MUSE parameters with reference labels and triplet losses
     for epoch in range(n_epochs_init):
-        # randomly permute samples
-        # data_train_sc, label_train_sc = randomly_permute_samples(
-        #     n_sample, data_inputs_sc, label_inputs_sc
-        # )
-        # data_train_st, label_train_st = randomly_permute_samples(
-        #     n_sample, data_inputs_st, label_inputs_st
-        # )
         data_train_sc, data_train_st, label_train_sc, label_train_st = (
             dual_randomly_permute(
                 n_sample,
@@ -478,12 +459,6 @@ def dual_muse_fit_predict(
             )
         )
         for i in range(total_batch):
-            # batch_sc, batch_labels_sc = get_batch_tensors(
-            #     i, n_sample, data_train_sc, label_train_sc
-            # )
-            # batch_st, batch_labels_st = get_batch_tensors(
-            #     i, n_sample, data_train_st, label_train_st
-            # )
             batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
                 dual_get_batch_tensors(
                     i,
@@ -556,13 +531,6 @@ def dual_muse_fit_predict(
 
     """ Training of DualMUSE """
     for epoch in range(n_epochs):
-        # randomly permute samples
-        # data_train_sc, label_train_sc = randomly_permute_samples(
-        #     n_sample, data_inputs_sc, labels_update_sc
-        # )
-        # data_train_st, label_train_st = randomly_permute_samples(
-        #     n_sample, data_inputs_st, labels_update_st
-        # )
         data_train_sc, data_train_st, label_train_sc, label_train_st = (
             dual_randomly_permute(
                 n_sample,
@@ -573,12 +541,6 @@ def dual_muse_fit_predict(
             )
         )
         for i in range(total_batch):
-            # batch_sc, batch_labels_sc = get_batch_tensors(
-            #     i, n_sample, data_train_sc, label_train_sc
-            # )
-            # batch_st, batch_labels_st = get_batch_tensors(
-            #     i, n_sample, data_train_st, label_train_st
-            # )
             batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
                 dual_get_batch_tensors(
                     i,
