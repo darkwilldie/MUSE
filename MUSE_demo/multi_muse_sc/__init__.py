@@ -12,7 +12,7 @@ n_hidden = 128  # number of hidden node in neural network
 learn_rate = 1e-4  # learning rate in the optimization
 batch_size = 64  # number of cells in the training batch
 n_epochs_init = 200  # number of training epoch in model initialization
-print_epochs = 50  # epoch interval to display the current training loss
+print_epochs = 25  # epoch interval to display the current training loss
 cluster_update_epoch = 200  # epoch interval to update modality-specific clusters
 """ construct computation graph using PyTorch """
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -370,6 +370,7 @@ def dual_muse_fit_predict(
         weight_penalty,
     ).to(device)
 
+    # TODO: 更改调度器
     optimizer = optim.Adam(model.parameters(), lr=learn_rate)
 
     print("++++++++++ DualMUSE for multi-modality single-cell analysis ++++++++++")
@@ -401,7 +402,6 @@ def dual_muse_fit_predict(
                     label_train_st,
                 )
             )
-
             optimizer.zero_grad()
             outputs = model(
                 batch_sc,
@@ -642,4 +642,5 @@ def dual_muse_fit_predict(
         reconstruct_inputs_st,
         encoded_inputs_sc,
         encoded_inputs_st,
+        model,
     )
