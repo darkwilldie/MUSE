@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 from .muse_architecture import MUSE, DualMUSE
 from scipy.spatial.distance import pdist
 import phenograph
@@ -8,7 +9,7 @@ import torch.optim as optim
 
 """ initial parameter setting """
 # parameter setting for neural network
-n_hidden = 128  # number of hidden node in neural network
+# n_hidden = 128  # number of hidden node in neural network
 learn_rate = 1e-4  # learning rate in the optimization
 batch_size = 64  # number of cells in the training batch
 n_epochs_init = 200  # number of training epoch in model initialization
@@ -31,7 +32,9 @@ def dual_randomly_permute(
     return sc_train_inputs, st_train_inputs
 
 
-def dual_get_batch_tensors(i, n_sample, sc_inputs, st_inputs, sc_labels, st_labels):
+def dual_get_batch_tensors(
+    i, n_sample, sc_inputs, st_inputs, sc_labels=None, st_labels=None
+):
     offset = (i * batch_size) % (n_sample)
     sc_batch_inputs = [
         sc_inputs[i][offset : (offset + batch_size), :].reshape(batch_size, -1)
@@ -45,7 +48,7 @@ def dual_get_batch_tensors(i, n_sample, sc_inputs, st_inputs, sc_labels, st_labe
     st_batch_inputs = np.stack(st_batch_inputs)
     sc_batch_tensors = torch.from_numpy(sc_batch_inputs).float().to(device)
     st_batch_tensors = torch.from_numpy(st_batch_inputs).float().to(device)
-    if sc_labels is not None and st_labels is not None:
+    if sc_labels and st_labels:
         sc_batch_labels = [
             sc_labels[i][offset : (offset + batch_size)].reshape(-1)
             for i in range(len(sc_labels))
@@ -118,6 +121,7 @@ def muse_fit_predict(
     data_inputs,
     label_inputs,
     latent_dim=100,
+    n_hidden=128,
     n_epochs=500,
     weight_penalty=5,
     triplet_lambda=5,
@@ -351,6 +355,7 @@ def dual_muse_fit_predict(
     label_inputs_sc,
     label_inputs_st,
     latent_dim=100,
+    n_hidden=128,
     n_epochs=500,
     weight_penalty=5,
     triplet_lambda=5,
@@ -380,34 +385,24 @@ def dual_muse_fit_predict(
     # initially train the model
     for epoch in range(n_epochs_init):
         # 随机打乱数据
-        data_train_sc, data_train_st, label_train_sc, label_train_st = (
-            dual_randomly_permute(
-                n_sample,
-                data_inputs_sc,
-                data_inputs_st,
-                label_inputs_sc,
-                label_inputs_st,
-            )
+        data_train_sc, data_train_st = dual_randomly_permute(
+            n_sample,
+            data_inputs_sc,
+            data_inputs_st,
         )
 
         # 批次训练
         for i in range(total_batch):
-            batch_sc, batch_st, batch_labels_sc, batch_labels_st = (
-                dual_get_batch_tensors(
-                    i,
-                    n_sample,
-                    data_train_sc,
-                    data_train_st,
-                    label_train_sc,
-                    label_train_st,
-                )
+            batch_sc, batch_st = dual_get_batch_tensors(
+                i,
+                n_sample,
+                data_train_sc,
+                data_train_st,
             )
             optimizer.zero_grad()
             outputs = model(
                 batch_sc,
                 batch_st,
-                batch_labels_sc,
-                batch_labels_st,
                 info_nce_lambda=info_nce_lambda,
             )
             total_loss = outputs[3]  # 获取总损失

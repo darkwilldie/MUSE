@@ -148,7 +148,7 @@ def muse_fit_predict(data_x,
                                 triplet_margin: 0})
         latent_pd_matrix = pdist(latent, 'euclidean')
         latent_pd_sort = np.sort(latent_pd_matrix)
-        select_top_n = np.int(latent_pd_sort.size * 0.2)
+        select_top_n = int(latent_pd_sort.size * 0.2)
         margin_estimate = np.median(latent_pd_sort[-select_top_n:]) - np.median(latent_pd_sort[:select_top_n])
 
         # refine MUSE parameters with reference labels and triplet losses

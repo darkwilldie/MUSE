@@ -128,35 +128,29 @@ class DualMUSE(nn.Module):
         # InfoNCE loss的温度参数
         self.temperature = temperature
 
-    # 更改为需要label作为参数
     def info_nce_loss(self, z1, z2):
         """计算InfoNCE loss"""
         # 归一化特征
         z1 = F.normalize(z1, dim=1)
         z2 = F.normalize(z2, dim=1)
+        # import cos_tg.train_tangram as tg_cos
 
+        # # tangram
+        # mapping, _ = tg_cos.read_csv_and_run_tangram(
+        #     [z1],
+        #     [z2],
+        #     num_epochs=500,
+        #     print_interval=500,
+        #     lambda_g1=1,
+        #     lambda_g2=1,
+        # )
+        # mapping = torch.tensor(mapping, dtype=torch.float32, device='cuda:0')
         # 计算相似度矩阵
         logits = torch.mm(z1, z2.t()) / self.temperature
 
-        # # 创建标签（对角线为正样本）
-        # labels = torch.arange(z1.shape[0], device=z1.device)
-
-        # 计算软对齐矩阵（使用行和列的softmax）
-        soft_align_row = F.softmax(logits, dim=1)  # 行方向的软对齐
-        soft_align_col = F.softmax(logits, dim=0)  # 列方向的软对齐
-
-        assert (
-            soft_align_row.shape == soft_align_col.shape
-        ), f"soft_align_row.shape: {soft_align_row.shape}, soft_align_col.shape: {soft_align_col.shape}"
-
-        # 综合两个方向的软对齐
-        pos_mask = (soft_align_row + soft_align_col) / 2
-
-        # 计算损失
-        exp_logits = torch.exp(logits)
-        weighted_pos_exp_sum = torch.sum(exp_logits * pos_mask, dim=1)
-        all_exp_sum = torch.sum(exp_logits, dim=1)
-        loss = -torch.log(weighted_pos_exp_sum / all_exp_sum).mean()
+        # loss = F.cross_entropy(logits, mapping)
+        labels = torch.arange(z1.shape[0], device=z1.device)
+        loss = F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)
 
         return loss
 
