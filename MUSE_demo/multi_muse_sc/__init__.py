@@ -88,8 +88,10 @@ def get_batch_tensors(i, n_sample, data_inputs, label_inputs=None):
         for data_input in data_inputs
     ]
     # 使用np.stack将列表转换为单个numpy数组
-    batch_inputs = np.stack(batch_inputs)
-    batch_inputs = torch.from_numpy(batch_inputs).float().to(device)
+    # batch_inputs = np.stack(batch_inputs)
+    batch_inputs = [
+        torch.from_numpy(batch_input).float().to(device) for batch_input in batch_inputs
+    ]
 
     if label_inputs is not None:
         batch_labels = [
@@ -97,19 +99,24 @@ def get_batch_tensors(i, n_sample, data_inputs, label_inputs=None):
             for label_input in label_inputs
         ]
         # 同样优化标签数据的转换
-        batch_labels = np.stack(batch_labels)
-        batch_labels = torch.from_numpy(batch_labels).float().to(device)
+        batch_labels = [
+            torch.from_numpy(batch_label).float().to(device)
+            for batch_label in batch_labels
+        ]
         return batch_inputs, batch_labels
 
     return batch_inputs
 
 
 def get_all_tensor(data_inputs, label_inputs=None):
-    data_inputs = np.stack(data_inputs)
-    data_inputs_tensor = torch.from_numpy(data_inputs).float().to(device)
+    data_inputs_tensor = [
+        torch.from_numpy(data_input).float().to(device) for data_input in data_inputs
+    ]
     if label_inputs is not None:
-        label_inputs = np.stack(label_inputs)
-        label_inputs_tensor = torch.from_numpy(label_inputs).float().to(device)
+        label_inputs_tensor = [
+            torch.from_numpy(label_input).float().to(device)
+            for label_input in label_inputs
+        ]
         return data_inputs_tensor, label_inputs_tensor
     return data_inputs_tensor
 
@@ -125,6 +132,7 @@ def muse_fit_predict(
     n_epochs=500,
     weight_penalty=5,
     triplet_lambda=5,
+    lambda_info_nce=5,
 ):
 
     # read data-specific parameters from inputs
@@ -132,10 +140,7 @@ def muse_fit_predict(
     n_sample = data_inputs[0].shape[0]
 
     model = MUSE(
-        feature_dims,
-        latent_dim,
-        n_hidden,
-        weight_penalty,
+        feature_dims, latent_dim, n_hidden, weight_penalty, lambda_info_nce
     ).to(device)
     optimizer = optim.Adam(model.parameters(), lr=learn_rate)
 
@@ -153,7 +158,7 @@ def muse_fit_predict(
             batch_inputs = get_batch_tensors(i, n_sample, data_train_inputs)
 
             optimizer.zero_grad()
-            _, _, _, loss, _, _, _ = model(batch_inputs)
+            _, _, _, loss, _, _, _, _ = model(batch_inputs)
             loss.backward()
             optimizer.step()
 
@@ -170,17 +175,18 @@ def muse_fit_predict(
                     reconstruction_error,
                     sparse_penalty,
                     _,
+                    info_nce,
                 ) = model(data_inputs_tensor)
 
                 print(
-                    f"epoch: {epoch}, \t total loss: {loss.item():03.2f},\t reconstruction loss: {reconstruction_error.item():03.2f},\t sparse penalty: {sparse_penalty.item():03.2f}"
+                    f"epoch: {epoch}, \t total loss: {loss.item():03.2f},\t reconstruction loss: {reconstruction_error.item():03.2f},\t sparse penalty: {sparse_penalty.item():03.2f},\t infoNCE: {info_nce.item():03.2f}"
                 )
 
     # estimate the margin for the triplet loss
     with torch.no_grad():
         data_inputs_tensor = get_all_tensor(data_inputs)
 
-        latent, _, _, _, _, _, _ = model(data_inputs_tensor)
+        latent, _, _, _, _, _, _, _ = model(data_inputs_tensor)
         latent = latent.cpu().numpy()
         latent_pd_matrix = pdist(latent, "euclidean")
         latent_pd_sort = np.sort(latent_pd_matrix)
@@ -205,7 +211,7 @@ def muse_fit_predict(
                 label_train_inputs,
             )
             optimizer.zero_grad()
-            _, _, _, loss, _, _, _ = model(
+            _, _, _, loss, _, _, _, _ = model(
                 batch_train_inputs,
                 batch_train_labels,
                 triplet_margin=margin_estimate,
@@ -229,6 +235,7 @@ def muse_fit_predict(
                     reconstruction_error,
                     weight_penalty,
                     trip_loss,
+                    info_nce,
                 ) = model(
                     data_train_inputs_tensor,
                     label_train_inputs_tensor,
@@ -237,7 +244,7 @@ def muse_fit_predict(
                 )
 
                 print(
-                    f"epoch: {epoch}, \t total loss: {loss.item():03.2f},\t reconstruction loss: {reconstruction_error.item():03.2f},\t sparse penalty: {weight_penalty.item():03.2f},\t triplet loss: {trip_loss.item():03.2f}"
+                    f"epoch: {epoch}, \t total loss: {loss.item():03.2f},\t reconstruction loss: {reconstruction_error.item():03.2f},\t sparse penalty: {weight_penalty.item():03.2f},\t triplet loss: {trip_loss.item():03.2f},\t infoNCE: {info_nce.item():03.2f}"
                 )
 
     # update cluster labels based modality-specific latents
@@ -246,7 +253,7 @@ def muse_fit_predict(
             data_inputs, label_inputs
         )
 
-        latent, _, encoded_inputs, _, _, _, _ = model(
+        latent, _, encoded_inputs, _, _, _, _, _ = model(
             data_inputs_tensor,
             label_inputs_tensor,
             triplet_margin=margin_estimate,
@@ -276,7 +283,7 @@ def muse_fit_predict(
             )
 
             optimizer.zero_grad()
-            _, _, _, loss, _, _, _ = model(
+            _, _, _, loss, _, _, _, _ = model(
                 batch_inputs,
                 batch_label_inputs,
                 triplet_margin=margin_estimate,
@@ -299,6 +306,7 @@ def muse_fit_predict(
                     reconstruction_error,
                     weight_penalty,
                     trip_loss,
+                    info_nce,
                 ) = model(
                     data_train_inputs_tensor,
                     label_train_inputs_tensor,
@@ -307,7 +315,7 @@ def muse_fit_predict(
                 )
 
                 print(
-                    f"epoch: {epoch}, \t total loss: {loss.item():03.2f},\t reconstruction loss: {reconstruction_error.item():03.2f},\t sparse penalty: {weight_penalty.item():03.2f},\t triplet loss: {trip_loss.item():03.2f}"
+                    f"epoch: {epoch}, \t total loss: {loss.item():03.2f},\t reconstruction loss: {reconstruction_error.item():03.2f},\t sparse penalty: {weight_penalty.item():03.2f},\t triplet loss: {trip_loss.item():03.2f},\t infoNCE: {info_nce.item():03.2f}"
                 )
 
         # update cluster labels based on new modality-specific latent representations
@@ -317,7 +325,7 @@ def muse_fit_predict(
                     data_inputs, labels_update
                 )
 
-                _, _, encoded_inputs, _, _, _, _ = model(
+                _, _, encoded_inputs, _, _, _, _, _ = model(
                     data_inputs_tensor,
                     label_inputs_tensor,
                     triplet_margin=margin_estimate,
@@ -334,14 +342,14 @@ def muse_fit_predict(
             data_inputs, labels_update
         )
 
-        latent, reconstruct_inputs, encoded_inputs, _, _, _, _ = model(
+        latent, reconstruct_inputs, encoded_inputs, _, _, _, _, _ = model(
             data_inputs_tensor,
             label_inputs_tensor,
             triplet_margin=margin_estimate,
             triplet_lambda=triplet_lambda,
         )
         latent = latent.cpu().numpy()
-        reconstruct_inputs = reconstruct_inputs.cpu().numpy()
+        reconstruct_inputs = [x.cpu().numpy() for x in reconstruct_inputs]
         encoded_inputs = encoded_inputs.cpu().numpy()
 
     print("++++++++++ MUSE completed ++++++++++")
@@ -357,9 +365,12 @@ def dual_muse_fit_predict(
     latent_dim=100,
     n_hidden=128,
     n_epochs=500,
-    weight_penalty=5,
-    triplet_lambda=5,
+    weight_penalty=5.0,
+    triplet_lambda=5.0,
     info_nce_lambda=1.0,
+    info_nce_lambda_sc=1.0,
+    info_nce_lambda_st=1.0,
+    temperature=0.07,
 ):
     # 获取特征维度
     feature_dims_sc = [data_input.shape[1] for data_input in data_inputs_sc]
@@ -373,6 +384,9 @@ def dual_muse_fit_predict(
         latent_dim,
         n_hidden,
         weight_penalty,
+        info_nce_lambda_sc,
+        info_nce_lambda_st,
+        temperature,
     ).to(device)
 
     # TODO: 更改调度器
@@ -421,7 +435,7 @@ def dual_muse_fit_predict(
                     info_nce_lambda=info_nce_lambda,
                 )
                 print(
-                    f"#epoch: {epoch}/{n_epochs_init} \t total loss: {outputs[3].item():03.2f} \t sc loss: {outputs[4][0].item():03.2f} \t st loss: {outputs[4][1].item():03.2f} \t infoNCE: {outputs[5].item():03.2f} \t sc recon: {outputs[6][0].item():03.2f} \t st recon: {outputs[6][1].item():03.2f} \t sc sparse: {outputs[7][0].item():03.2f} \t st sparse: {outputs[7][1].item():03.2f} \t sc trip: {outputs[8][0].item():03.2f} \t st trip: {outputs[8][1].item():03.2f}"
+                    f"#epoch: {epoch}/{n_epochs_init} \t total loss: {outputs[3].item():03.2f} \t sc loss: {outputs[4][0].item():03.2f} \t st loss: {outputs[4][1].item():03.2f} \t infoNCE: {outputs[5].item():03.2f} \t sc recon: {outputs[6][0].item():03.2f} \t st recon: {outputs[6][1].item():03.2f} \t sc sparse: {outputs[7][0].item():03.2f} \t st sparse: {outputs[7][1].item():03.2f} \t sc trip: {outputs[8][0].item():03.2f} \t st trip: {outputs[8][1].item():03.2f} \t sc infoNCE: {outputs[9][0].item():03.2f} \t st infoNCE: {outputs[9][1].item():03.2f}"
                 )
     # estimate the margin for the triplet loss
     with torch.no_grad():
@@ -498,7 +512,7 @@ def dual_muse_fit_predict(
                     triplet_lambda=triplet_lambda,
                 )
                 print(
-                    f"#epoch: {epoch}/{n_epochs_init} \t total loss: {outputs[3].item():03.2f} \t sc loss: {outputs[4][0].item():03.2f} \t st loss: {outputs[4][1].item():03.2f} \t infoNCE: {outputs[5].item():03.2f} \t sc recon: {outputs[6][0].item():03.2f} \t st recon: {outputs[6][1].item():03.2f} \t sc sparse: {outputs[7][0].item():03.2f} \t st sparse: {outputs[7][1].item():03.2f} \t sc trip: {outputs[8][0].item():03.2f} \t st trip: {outputs[8][1].item():03.2f}"
+                    f"#epoch: {epoch}/{n_epochs_init} \t total loss: {outputs[3].item():03.2f} \t sc loss: {outputs[4][0].item():03.2f} \t st loss: {outputs[4][1].item():03.2f} \t infoNCE: {outputs[5].item():03.2f} \t sc recon: {outputs[6][0].item():03.2f} \t st recon: {outputs[6][1].item():03.2f} \t sc sparse: {outputs[7][0].item():03.2f} \t st sparse: {outputs[7][1].item():03.2f} \t sc trip: {outputs[8][0].item():03.2f} \t st trip: {outputs[8][1].item():03.2f} \t sc infoNCE: {outputs[9][0].item():03.2f} \t st infoNCE: {outputs[9][1].item():03.2f}"
                 )
 
     # update cluster labels based modality-specific latents
@@ -580,7 +594,7 @@ def dual_muse_fit_predict(
                     triplet_lambda=triplet_lambda,
                 )
                 print(
-                    f"#epoch: {epoch}/{n_epochs} \t total loss: {outputs[3].item():03.2f} \t sc loss: {outputs[4][0].item():03.2f} \t st loss: {outputs[4][1].item():03.2f} \t infoNCE: {outputs[5].item():03.2f} \t sc recon: {outputs[6][0].item():03.2f} \t st recon: {outputs[6][1].item():03.2f} \t sc sparse: {outputs[7][0].item():03.2f} \t st sparse: {outputs[7][1].item():03.2f} \t sc trip: {outputs[8][0].item():03.2f} \t st trip: {outputs[8][1].item():03.2f}"
+                    f"#epoch: {epoch}/{n_epochs} \t total loss: {outputs[3].item():03.2f} \t sc loss: {outputs[4][0].item():03.2f} \t st loss: {outputs[4][1].item():03.2f} \t infoNCE: {outputs[5].item():03.2f} \t sc recon: {outputs[6][0].item():03.2f} \t st recon: {outputs[6][1].item():03.2f} \t sc sparse: {outputs[7][0].item():03.2f} \t st sparse: {outputs[7][1].item():03.2f} \t sc trip: {outputs[8][0].item():03.2f} \t st trip: {outputs[8][1].item():03.2f} \t sc infoNCE: {outputs[9][0].item():03.2f} \t st infoNCE: {outputs[9][1].item():03.2f}"
                 )
 
         # update cluster labels based on new modality-specific latent representations
@@ -625,16 +639,16 @@ def dual_muse_fit_predict(
         )
         latent_sc = outputs[0][0].cpu().numpy()
         latent_st = outputs[0][1].cpu().numpy()
-        reconstruct_inputs_sc = outputs[1][0].cpu().numpy()
-        reconstruct_inputs_st = outputs[1][1].cpu().numpy()
+        hats_sc = [x.cpu().numpy() for x in outputs[1][0]]
+        hats_st = [x.cpu().numpy() for x in outputs[1][1]]
         encoded_inputs_sc = outputs[2][0].cpu().numpy()
         encoded_inputs_st = outputs[2][1].cpu().numpy()
 
     return (
         latent_sc,
         latent_st,
-        reconstruct_inputs_sc,
-        reconstruct_inputs_st,
+        hats_sc,
+        hats_st,
         encoded_inputs_sc,
         encoded_inputs_st,
         model,
