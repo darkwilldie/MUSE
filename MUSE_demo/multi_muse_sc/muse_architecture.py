@@ -188,7 +188,7 @@ class DualMUSE(nn.Module):
         ) = self.muse_st(inputs_st, labels_st, triplet_margin[1], triplet_lambda)
 
         # 计算InfoNCE loss
-        info_nce = info_nce_lambda * info_nce_loss(z_sc, z_st, self.temperature)
+        info_nce = info_nce_lambda * info_nce_loss(z_sc, z_st, self.temperature) if info_nce_lambda > 0 else torch.tensor(0.0, device=z_sc.device)
 
         # 总损失
         total_loss = loss_sc + loss_st + info_nce

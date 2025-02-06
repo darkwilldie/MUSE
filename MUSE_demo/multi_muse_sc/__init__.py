@@ -44,10 +44,18 @@ def dual_get_batch_tensors(
         st_inputs[i][offset : (offset + batch_size), :].reshape(batch_size, -1)
         for i in range(len(st_inputs))
     ]
-    sc_batch_inputs = np.stack(sc_batch_inputs)
-    st_batch_inputs = np.stack(st_batch_inputs)
-    sc_batch_tensors = torch.from_numpy(sc_batch_inputs).float().to(device)
-    st_batch_tensors = torch.from_numpy(st_batch_inputs).float().to(device)
+    # sc_batch_inputs = np.stack(sc_batch_inputs)
+    # st_batch_inputs = np.stack(st_batch_inputs)
+    # sc_batch_tensors = torch.from_numpy(sc_batch_inputs).float().to(device)
+    # st_batch_tensors = torch.from_numpy(st_batch_inputs).float().to(device)
+    sc_batch_tensors = [
+        torch.from_numpy(sc_batch_inputs[i]).float().to(device)
+        for i in range(len(sc_batch_inputs))
+    ]
+    st_batch_tensors = [
+        torch.from_numpy(st_batch_inputs[i]).float().to(device)
+        for i in range(len(st_batch_inputs))
+    ]
     if sc_labels and st_labels:
         sc_batch_labels = [
             sc_labels[i][offset : (offset + batch_size)].reshape(-1)
@@ -57,10 +65,14 @@ def dual_get_batch_tensors(
             st_labels[i][offset : (offset + batch_size)].reshape(-1)
             for i in range(len(st_labels))
         ]
-        sc_batch_labels = np.stack(sc_batch_labels)
-        st_batch_labels = np.stack(st_batch_labels)
-        sc_batch_label_tensors = torch.from_numpy(sc_batch_labels).float().to(device)
-        st_batch_label_tensors = torch.from_numpy(st_batch_labels).float().to(device)
+        sc_batch_label_tensors = [
+            torch.from_numpy(sc_batch_labels[i]).float().to(device)
+            for i in range(len(sc_batch_labels))
+        ]
+        st_batch_label_tensors = [
+            torch.from_numpy(st_batch_labels[i]).float().to(device)
+            for i in range(len(st_batch_labels))
+        ]
         return (
             sc_batch_tensors,
             st_batch_tensors,
@@ -372,6 +384,12 @@ def dual_muse_fit_predict(
     info_nce_lambda_st=1.0,
     temperature=0.07,
 ):
+    """
+    data_inputs_sc: single-cell data, shape: [(N, dims_1), (N, dims_2), ...]
+    data_inputs_st: spatial transcriptomics data, shape: [(M, dims_1), (M, dims_2), ...]
+    label_inputs_sc: single-cell labels, shape: [(N,), (N,), ...]
+    label_inputs_st: spatial transcriptomics labels, shape: [(M,), (M,), ...]
+    """
     # 获取特征维度
     feature_dims_sc = [data_input.shape[1] for data_input in data_inputs_sc]
     feature_dims_st = [data_input.shape[1] for data_input in data_inputs_st]
