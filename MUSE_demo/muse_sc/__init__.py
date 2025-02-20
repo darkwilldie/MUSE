@@ -2,6 +2,7 @@ import numpy as np
 from .muse_architecture import MUSE
 from scipy.spatial.distance import pdist
 import phenograph
+from sklearn.cluster import KMeans
 import torch
 import torch.optim as optim
 
@@ -18,6 +19,7 @@ def muse_fit_predict(
     n_epochs=500,
     weight_penalty=5,
     triplet_lambda=5,
+    n_cluster=None,
 ):
     """
     MUSE model fitting and predicting:
@@ -48,7 +50,7 @@ def muse_fit_predict(
     # parameter setting for neural network
     n_hidden = 128  # number of hidden node in neural network
     learn_rate = 1e-4  # learning rate in the optimization
-    batch_size = 64  # number of cells in the training batch
+    batch_size = 512  # number of cells in the training batch
     n_epochs_init = 200  # number of training epoch in model initialization
     print_epochs = 50  # epoch interval to display the current training loss
     cluster_update_epoch = 200  # epoch interval to update modality-specific clusters
@@ -142,14 +144,14 @@ def muse_fit_predict(
     with torch.no_grad():
         data_x_tensor = torch.tensor(data_x, dtype=torch.float32).to(device)
         data_y_tensor = torch.tensor(data_y, dtype=torch.float32).to(device)
-        label_x_tensor = torch.zeros(data_x.shape[0]).to(device)
-        label_y_tensor = torch.zeros(data_y.shape[0]).to(device)
+        label_x_zero_tensor = torch.zeros(data_x.shape[0]).to(device)
+        label_y_zero_tensor = torch.zeros(data_y.shape[0]).to(device)
 
         latent, reconstruct_x, reconstruct_y, _, _, _, _, _, _, _ = model(
             data_x_tensor,
             data_y_tensor,
-            label_x_tensor,
-            label_y_tensor,
+            label_x_zero_tensor,
+            label_y_zero_tensor,
         )
         latent = latent.cpu().numpy()
         latent_pd_matrix = pdist(latent, "euclidean")
@@ -255,8 +257,10 @@ def muse_fit_predict(
         latent_y = latent_y.cpu().numpy()
 
         # update cluster labels using PhenoGraph
-        label_x_update, _, _ = phenograph.cluster(latent_x)
-        label_y_update, _, _ = phenograph.cluster(latent_y)
+        # label_x_update, _, _ = phenograph.cluster(latent_x)
+        # label_y_update, _, _ = phenograph.cluster(latent_y)
+        label_x_update = cluster(latent_x, n_cluster)
+        label_y_update = cluster(latent_y, n_cluster)
         print("Finish initialization of MUSE")
 
     """ Training of MUSE """
@@ -357,8 +361,10 @@ def muse_fit_predict(
                 latent_y = latent_y.cpu().numpy()
 
                 # use PhenoGraph to obtain cluster label
-                label_x_update, _, _ = phenograph.cluster(latent_x)
-                label_y_update, _, _ = phenograph.cluster(latent_y)
+                # label_x_update, _, _ = phenograph.cluster(latent_x)
+                # label_y_update, _, _ = phenograph.cluster(latent_y)
+                label_x_update = cluster(latent_x, n_cluster)
+                label_y_update = cluster(latent_y, n_cluster)
 
     """ MUSE output """
     with torch.no_grad():
@@ -384,3 +390,9 @@ def muse_fit_predict(
     print("++++++++++ MUSE completed ++++++++++")
 
     return latent, reconstruct_x, reconstruct_y, latent_x, latent_y
+
+
+def cluster(feature, n_cluster=None):
+    if n_cluster:
+        return KMeans(n_cluster, random_state=42).fit_predict(feature)
+    return phenograph.cluster(feature, seed=42)[0]

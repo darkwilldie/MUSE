@@ -11,7 +11,7 @@ import torch.optim as optim
 # parameter setting for neural network
 # n_hidden = 128  # number of hidden node in neural network
 learn_rate = 1e-4  # learning rate in the optimization
-batch_size = 64  # number of cells in the training batch
+batch_size = 256  # number of cells in the training batch
 n_epochs_init = 200  # number of training epoch in model initialization
 print_epochs = 25  # epoch interval to display the current training loss
 cluster_update_epoch = 200  # epoch interval to update modality-specific clusters
@@ -383,6 +383,8 @@ def dual_muse_fit_predict(
     info_nce_lambda_sc=1.0,
     info_nce_lambda_st=1.0,
     temperature=0.07,
+    reconstruct_lambda_sc=1,
+    reconstruct_lambda_st=1,
 ):
     """
     data_inputs_sc: single-cell data, shape: [(N, dims_1), (N, dims_2), ...]
@@ -405,6 +407,8 @@ def dual_muse_fit_predict(
         info_nce_lambda_sc,
         info_nce_lambda_st,
         temperature,
+        reconstruct_lambda_sc,
+        reconstruct_lambda_st,
     ).to(device)
 
     # TODO: 更改调度器

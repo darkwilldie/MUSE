@@ -14,6 +14,7 @@ class MUSE(nn.Module):
         weight_penalty,
         lambda_info_nce=1,
         temperature=0.07,
+        reconstruct_lambda=1,
     ):
         super(MUSE, self).__init__()
         self.num_modalities = len(dims)
@@ -28,6 +29,7 @@ class MUSE(nn.Module):
         self.weight_penalty = weight_penalty
         self.temperature = temperature
         self.lambda_info_nce = lambda_info_nce
+        self.reconstruct_lambda = reconstruct_lambda
         self.fc_latent = nn.Linear(self.num_modalities * n_hidden, dim_z)
 
     def forward(
@@ -69,7 +71,7 @@ class MUSE(nn.Module):
             torch.mean(LA.vector_norm(inputs_hat[i] - inputs[i], dim=1))
             for i in range(self.num_modalities)
         ]
-        reconstruct_loss = sum(recons)
+        reconstruct_loss = self.reconstruct_lambda * sum(recons)
 
         if triplet_lambda > 0:
             if labels is not None:
@@ -143,16 +145,31 @@ class DualMUSE(nn.Module):
         info_nce_lambda_sc=1.0,
         info_nce_lambda_st=1.0,
         temperature=0.07,  # InfoNCE loss的温度参数
+        reconstruct_lambda_sc=1,
+        reconstruct_lambda_st=1,
     ):
         super(DualMUSE, self).__init__()
         self.temperature = temperature
         # 创建两个MUSE模型
         self.muse_sc = MUSE(
-            dims_sc, dim_z, n_hidden, weight_penalty, info_nce_lambda_sc, temperature
+            dims_sc,
+            dim_z,
+            n_hidden,
+            weight_penalty,
+            info_nce_lambda_sc,
+            temperature,
+            reconstruct_lambda_sc,
         )
         self.muse_st = MUSE(
-            dims_st, dim_z, n_hidden, weight_penalty, info_nce_lambda_st, temperature
+            dims_st,
+            dim_z,
+            n_hidden,
+            weight_penalty,
+            info_nce_lambda_st,
+            temperature,
+            reconstruct_lambda_st,
         )
+        # self.muse_st = self.muse_sc
 
     def forward(
         self,
@@ -188,7 +205,11 @@ class DualMUSE(nn.Module):
         ) = self.muse_st(inputs_st, labels_st, triplet_margin[1], triplet_lambda)
 
         # 计算InfoNCE loss
-        info_nce = info_nce_lambda * info_nce_loss(z_sc, z_st, self.temperature) if info_nce_lambda > 0 else torch.tensor(0.0, device=z_sc.device)
+        info_nce = (
+            info_nce_lambda * info_nce_loss(z_sc, z_st, self.temperature)
+            if info_nce_lambda > 0
+            else torch.tensor(0.0, device=z_sc.device)
+        )
 
         # 总损失
         total_loss = loss_sc + loss_st + info_nce

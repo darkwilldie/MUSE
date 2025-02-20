@@ -30,6 +30,16 @@ def read_csv_and_run_tangram(
     # 读取单细胞和空间数据
     single_cell, spatial = all_latent_sc, all_latent_st
     device = f"cuda:{device[0]}" if torch.cuda.is_available() else "cpu"
+
+    if type(single_cell[0]) == np.ndarray:
+        single_cell = [
+            torch.tensor(data, dtype=torch.float32).to(device) for data in single_cell
+        ]
+    if type(spatial[0]) == np.ndarray:
+        spatial = [
+            torch.tensor(data, dtype=torch.float32).to(device) for data in spatial
+        ]
+
     single_cell = [data.unsqueeze(-1) for data in single_cell]
     S = torch.cat(single_cell, dim=-1)
     spatial = [data.unsqueeze(-1) for data in spatial]
